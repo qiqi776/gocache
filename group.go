@@ -107,7 +107,7 @@ func (g *Group) Delete(key string) (bool, error) {
 	}
 }
 
-func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
+func (g *Group) getFromPeer(peer Peer, key string) (ByteView, error) {
 	bytes, err := peer.Get(g.name, key)
 	if err != nil {
 		return ByteView{}, err
@@ -117,7 +117,7 @@ func (g *Group) getFromPeer(peer PeerGetter, key string) (ByteView, error) {
 	}, nil
 }
 
-func (g *Group) deleteFromPeer(peer PeerGetter, key string) (bool, error) {
+func (g *Group) deleteFromPeer(peer Peer, key string) (bool, error) {
 	success, err := peer.Delete(g.name, key)
 	if err != nil {
 		return false, err
