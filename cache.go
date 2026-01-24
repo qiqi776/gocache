@@ -12,20 +12,21 @@ type cache struct {
 	cacheBytes int64
 }
 
-
 func (cache *cache) lruCacheLazyLoadIfNeed() {
 	if cache.lruCache == nil {
 		cache.lock.Lock()
 		defer cache.lock.Unlock()
 		if cache.lruCache == nil {
-			cache.lruCache = store.NewLruCache(cache.cacheBytes)
+			cache.lruCache = store.NewLRUCache(store.Options{
+				MaxBytes: cache.cacheBytes,
+			})
 		}
 	}
 }
 
 func (cache *cache) add(key string, value ByteView) {
 	cache.lruCacheLazyLoadIfNeed()
-	cache.lruCache.Add(key, value)
+	cache.lruCache.Set(key, value)
 }
 
 func (cache *cache) get(key string) (value ByteView, ok bool) {
@@ -42,7 +43,11 @@ func (cache *cache) get(key string) (value ByteView, ok bool) {
 
 func (cache *cache) addWithExpiration(key string, value ByteView, expirationTime time.Time) {
 	cache.lruCacheLazyLoadIfNeed()
-	cache.lruCache.AddWithExpiration(key, value, expirationTime)
+    ttl := time.Until(expirationTime)
+    if ttl < 0 {
+        ttl = 0
+    }
+	cache.lruCache.SetWithExpiration(key, value, ttl)
 }
 
 func (cache *cache) delete(key string) bool {

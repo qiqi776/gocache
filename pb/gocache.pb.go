@@ -25,6 +25,7 @@ type Request struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Group         string                 `protobuf:"bytes,1,opt,name=group,proto3" json:"group,omitempty"`
 	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -71,6 +72,13 @@ func (x *Request) GetKey() string {
 		return x.Key
 	}
 	return ""
+}
+
+func (x *Request) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
 }
 
 type ResponseForGet struct {
@@ -161,20 +169,68 @@ func (x *ResponseForDelete) GetValue() bool {
 	return false
 }
 
+type ResponseForSet struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResponseForSet) Reset() {
+	*x = ResponseForSet{}
+	mi := &file_gocache_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResponseForSet) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResponseForSet) ProtoMessage() {}
+
+func (x *ResponseForSet) ProtoReflect() protoreflect.Message {
+	mi := &file_gocache_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ResponseForSet.ProtoReflect.Descriptor instead.
+func (*ResponseForSet) Descriptor() ([]byte, []int) {
+	return file_gocache_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ResponseForSet) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
 var File_gocache_proto protoreflect.FileDescriptor
 
 const file_gocache_proto_rawDesc = "" +
 	"\n" +
-	"\rgocache.proto\x12\x05proto\"1\n" +
+	"\rgocache.proto\x12\x05proto\"G\n" +
 	"\aRequest\x12\x14\n" +
 	"\x05group\x18\x01 \x01(\tR\x05group\x12\x10\n" +
-	"\x03key\x18\x02 \x01(\tR\x03key\"&\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\fR\x05value\"&\n" +
 	"\x0eResponseForGet\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\fR\x05value\")\n" +
 	"\x11ResponseForDelete\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\bR\x05value2k\n" +
+	"\x05value\x18\x01 \x01(\bR\x05value\"*\n" +
+	"\x0eResponseForSet\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess2\x99\x01\n" +
 	"\aGoCache\x12,\n" +
-	"\x03Get\x12\x0e.proto.Request\x1a\x15.proto.ResponseForGet\x122\n" +
+	"\x03Get\x12\x0e.proto.Request\x1a\x15.proto.ResponseForGet\x12,\n" +
+	"\x03Set\x12\x0e.proto.Request\x1a\x15.proto.ResponseForGet\x122\n" +
 	"\x06Delete\x12\x0e.proto.Request\x1a\x18.proto.ResponseForDeleteB\x04Z\x02./b\x06proto3"
 
 var (
@@ -189,19 +245,22 @@ func file_gocache_proto_rawDescGZIP() []byte {
 	return file_gocache_proto_rawDescData
 }
 
-var file_gocache_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_gocache_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_gocache_proto_goTypes = []any{
 	(*Request)(nil),           // 0: proto.Request
 	(*ResponseForGet)(nil),    // 1: proto.ResponseForGet
 	(*ResponseForDelete)(nil), // 2: proto.ResponseForDelete
+	(*ResponseForSet)(nil),    // 3: proto.ResponseForSet
 }
 var file_gocache_proto_depIdxs = []int32{
 	0, // 0: proto.GoCache.Get:input_type -> proto.Request
-	0, // 1: proto.GoCache.Delete:input_type -> proto.Request
-	1, // 2: proto.GoCache.Get:output_type -> proto.ResponseForGet
-	2, // 3: proto.GoCache.Delete:output_type -> proto.ResponseForDelete
-	2, // [2:4] is the sub-list for method output_type
-	0, // [0:2] is the sub-list for method input_type
+	0, // 1: proto.GoCache.Set:input_type -> proto.Request
+	0, // 2: proto.GoCache.Delete:input_type -> proto.Request
+	1, // 3: proto.GoCache.Get:output_type -> proto.ResponseForGet
+	1, // 4: proto.GoCache.Set:output_type -> proto.ResponseForGet
+	2, // 5: proto.GoCache.Delete:output_type -> proto.ResponseForDelete
+	3, // [3:6] is the sub-list for method output_type
+	0, // [0:3] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
 	0, // [0:0] is the sub-list for extension extendee
 	0, // [0:0] is the sub-list for field type_name
@@ -218,7 +277,7 @@ func file_gocache_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_gocache_proto_rawDesc), len(file_gocache_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

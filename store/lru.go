@@ -6,157 +6,157 @@ import (
 	"time"
 )
 
-type Store interface {
-	Get(key string) (Value, bool)
-	Add(key string, value Value)
-	AddWithExpiration(key string, value Value, expirationTime time.Time)
-	Delete(key string) bool
-}
-
-type Value interface {
-	Len() int
-}
-
-// lruCache 结构体
+// lruCache LRU缓存实现
 type lruCache struct {
-	lock      sync.Mutex
-	cacheMap  map[string]*list.Element
-	expires   map[string]time.Time         
-	ll        *list.List                
-	OnEvicted func(key string, value Value)
-	maxBytes  int64                      
-	nbytes    int64                      
+	mu              sync.RWMutex
+	list            *list.List
+	items           map[string]*list.Element
+	expires         map[string]time.Time
+	maxBytes        int64
+	usedBytes       int64
+	onEvicted       func(key string, value Value)
+	cleanupInterval time.Duration
 }
 
-// 通过key可以在记录删除时，删除字典缓存中的映射
-type entry struct {
+type lruEntry struct {
 	key   string
 	value Value
 }
 
-func NewLruCache(maxSize int64) *lruCache {
-	lc := lruCache{
-		cacheMap: make(map[string]*list.Element),
-		expires: make(map[string]time.Time),
-		nbytes: 0,
-		ll:		list.New(),
-		maxBytes: maxSize,
+// newLRUCache 创建LRU缓存实例
+func NewLRUCache(opts Options) *lruCache {
+	c := &lruCache{
+		list:            list.New(),
+		items:           make(map[string]*list.Element),
+		expires:         make(map[string]time.Time),
+		maxBytes:        opts.MaxBytes,
+		onEvicted:       opts.OnEvicted,
+		cleanupInterval: opts.CleanupInterval,
 	}
-	go func() {
-		ticker := time.NewTicker(1 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			lc.periodicMemoryClean()	
-		}
-	}()
-	return &lc
+
+	if c.cleanupInterval <= 0 {
+		c.cleanupInterval = time.Minute
+	}
+
+	go c.cleanupLoop()
+	return c
 }
 
+// Get 实现Store接口
 func (c *lruCache) Get(key string) (Value, bool) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-	// 惰性删除检查
-	if epTime, ok := c.expires[key]; ok && epTime.Before(time.Now()) {
-		c.rmElement(c.cacheMap[key])
-		return nil, false
-	}
-	// 过期清除
-	if v, ok := c.cacheMap[key]; ok {
-		c.ll.MoveToBack(v)
-		return v.Value.(*entry).value, true
+	if elem, ok := c.items[key]; ok {
+		if expTime, hasExp := c.expires[key]; hasExp && time.Now().After(expTime) {
+			return nil, false
+		}
+		c.list.MoveToBack(elem)
+		return elem.Value.(*lruEntry).value, true
 	}
 	return nil, false
 }
 
-// 添加或更新一个永不过期的键值对
-func (c *lruCache) Add(key string, value Value) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	delete(c.expires, key)
-	c.baseAdd(key, value)
-	c.freeIfNeeded()
+// Set 实现Store接口
+func (c *lruCache) Set(key string, value Value) error {
+	return c.SetWithExpiration(key, value, 0)
 }
 
-// 辅助函数
-func (c *lruCache) baseAdd(key string, value Value) {
-	if ele, ok := c.cacheMap[key]; ok {
-		c.ll.MoveToBack(ele)
-		kv := ele.Value.(*entry)
-		c.nbytes += int64(value.Len()) - int64(kv.value.Len())
-		kv.value = value
+// SetWithExpiration 实现Store接口
+func (c *lruCache) SetWithExpiration(key string, value Value, expiration time.Duration) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, ok := c.items[key]; ok {
+		c.usedBytes += int64(value.Len() - elem.Value.(*lruEntry).value.Len())
+		elem.Value.(*lruEntry).value = value
+		c.list.MoveToBack(elem)
 	} else {
-		ele := c.ll.PushBack(&entry{key, value})
-		c.cacheMap[key] = ele
-		c.nbytes += int64(len(key) + value.Len())
+		elem := c.list.PushBack(&lruEntry{key: key, value: value})
+		c.items[key] = elem
+		c.usedBytes += int64(len(key) + value.Len())
 	}
+
+	if expiration > 0 {
+		c.expires[key] = time.Now().Add(expiration)
+	} else {
+		delete(c.expires, key)
+	}
+
+	c.evict()
+	return nil
 }
 
-// 添加或更新一个带过期时间的键值对
-func (c *lruCache) AddWithExpiration(key string, value Value, expirationTime time.Time) {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.expires[key] = expirationTime
-	c.baseAdd(key, value)
-	c.freeIfNeeded()
-}
-
-// 删除一个键值对
+// Delete 实现Store接口
 func (c *lruCache) Delete(key string) bool {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	if ele, ok := c.cacheMap[key]; ok {
-		c.rmElement(ele)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if elem, ok := c.items[key]; ok {
+		c.removeElement(elem)
 		return true
 	}
-	return true
+	return false
 }
 
-// 辅助方法
-func (c *lruCache) rmElement(e *list.Element) {
-	if e == nil {
-		return
-	}
-	c.ll.Remove(e)
-	kv := e.Value.(*entry)
-	delete(c.cacheMap, kv.key)
-	delete(c.expires, kv.key)
-	c.nbytes -= int64(len(kv.key) + kv.value.Len())
+// Clear 实现Store接口
+func (c *lruCache) Clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if c.OnEvicted != nil {
-		c.OnEvicted(kv.key, kv.value)
+	c.list.Init()
+	c.items = make(map[string]*list.Element)
+	c.expires = make(map[string]time.Time)
+	c.usedBytes = 0
+}
+
+// Len 实现Store接口
+func (c *lruCache) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.list.Len()
+}
+
+// removeElement 删除缓存元素
+func (c *lruCache) removeElement(elem *list.Element) {
+	entry := elem.Value.(*lruEntry)
+	c.list.Remove(elem)
+	delete(c.items, entry.key)
+	delete(c.expires, entry.key)
+	c.usedBytes -= int64(len(entry.key) + entry.value.Len())
+
+	if c.onEvicted != nil {
+		c.onEvicted(entry.key, entry.value)
 	}
 }
 
-// 内存淘汰策略 无锁
-func (c *lruCache) freeIfNeeded() {
-	for c.maxBytes > 0 && c.nbytes > c.maxBytes {
-		ele := c.ll.Front()
-		if ele != nil {
-			c.rmElement(ele)
-		}
-	}
-}
-
-// 主动过期清理
-func (c *lruCache) periodicMemoryClean() {
-	c.lock.Lock()
-	defer c.lock.Unlock()
-
-	checked := 0
-	limit := len(c.expires) / 10
-	if limit < 10 {
-		limit = 10
-	}
-	for key, t := range c.expires {
-		if checked >= limit {
-			break
-		}
-		checked++
-		if t.Before(time.Now()) {
-			if ele, ok := c.cacheMap[key]; ok {
-				c.rmElement(ele)
+// evict 清理过期和超出内存限制的缓存
+func (c *lruCache) evict() {
+	now := time.Now()
+	for key, expTime := range c.expires {
+		if now.After(expTime) {
+			if elem, ok := c.items[key]; ok {
+				c.removeElement(elem)
 			}
 		}
+	}
+
+	for c.maxBytes > 0 && c.usedBytes > c.maxBytes {
+		elem := c.list.Front()
+		if elem != nil {
+			c.removeElement(elem)
+		}
+	}
+}
+
+// cleanupLoop 定期清理过期缓存
+func (c *lruCache) cleanupLoop() {
+	ticker := time.NewTicker(c.cleanupInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.mu.Lock()
+		c.evict()
+		c.mu.Unlock()
 	}
 }

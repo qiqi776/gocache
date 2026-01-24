@@ -61,6 +61,22 @@ func (c *Client) Get(group, key string) ([]byte, error) {
 	return resp.GetValue(), nil
 }
 
+func (c *Client) Set(group, key string, value []byte) error {
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    _, err := c.grpcCli.Set(ctx, &pb.Request{
+        Group: group,
+        Key:   key,
+        Value: value,
+    })
+    
+    if err != nil {
+        return fmt.Errorf("failed to set value to peer %s: %v", c.addr, err)
+    }
+    return nil
+}
+
 func (c *Client) Delete(group, key string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
